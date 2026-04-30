@@ -73,12 +73,24 @@ export function registerCommands(pi: ExtensionAPI): void {
       }
 
       const model = ctx.modelRegistry.find(cfg.provider, cfg.modelId);
-      const available = model && ctx.modelRegistry.getProviderAuthStatus(cfg.provider).configured;
+
+      // Actually resolve auth — same path the vision client will use.
+      let available = false;
+      let authError = "";
+      if (model) {
+        const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+        available = auth.ok && !!auth.apiKey;
+        if (!available && auth.error) {
+          authError = auth.error;
+        }
+      }
+
       const cacheEntries = getCacheSize();
 
       const lines = [
         `Vision model: ${cfg.provider}/${cfg.modelId}`,
         `Status: ${available ? "✓ available" : "⚠ not available"}`,
+        ...(authError ? [`Reason: ${authError}`] : []),
         `Cache entries: ${cacheEntries}`,
         ``,
         `Use /visionizer-model to change, /visionizer-clear to disable.`,
