@@ -136,6 +136,13 @@ async function processMessages(
           type: "text",
           text: `[Image Description: ${description}]`,
         });
+      } else if (isTextBlock(block)) {
+        // Clean misleading notes added by pi's read tool for text-only models.
+        // Since we ARE providing an image description, remove the note.
+        newContent.push({
+          type: "text",
+          text: stripNoVisionNote(block.text),
+        });
       } else {
         newContent.push(block);
       }
@@ -161,6 +168,32 @@ function isImageBlock(block: unknown): block is { type: "image"; data: string; m
     (block as any).type === "image" &&
     typeof (block as any).data === "string"
   );
+}
+
+/**
+ * Type guard: check if a content block is text.
+ */
+function isTextBlock(block: unknown): block is { type: "text"; text: string } {
+  return (
+    typeof block === "object" &&
+    block !== null &&
+    (block as any).type === "text" &&
+    typeof (block as any).text === "string"
+  );
+}
+
+/** The misleading note pi's read tool adds when the model is text-only. */
+const NO_VISION_NOTE = "[Current model does not support images. The image will be omitted from this request.]";
+
+/**
+ * Strip the "model does not support images" note from text content.
+ * Since pi-visionizer IS providing a description, this note is misleading.
+ */
+function stripNoVisionNote(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => line.trim() !== NO_VISION_NOTE.trim())
+    .join("\n");
 }
 
 /**

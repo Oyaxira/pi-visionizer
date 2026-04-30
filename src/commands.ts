@@ -4,7 +4,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { clearCache, getCacheSize } from "./vision-client";
-import { CUSTOM_TYPE, getConfig, type VisionizerConfig } from "./config";
+import { CUSTOM_TYPE, DEFAULT_PROMPT, getConfig, type VisionizerConfig } from "./config";
 
 export function registerCommands(pi: ExtensionAPI): void {
   // /visionizer-model — pick a vision model from available pi models
@@ -85,6 +85,41 @@ export function registerCommands(pi: ExtensionAPI): void {
       ];
 
       ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // /visionizer-prompt — customize the image description prompt
+  pi.registerCommand("visionizer-prompt", {
+    description: "Set a custom prompt for the vision model when describing images",
+    handler: async (_args, ctx: ExtensionCommandContext) => {
+      const currentCfg = getConfig(ctx);
+      const currentPrompt = currentCfg?.prompt || DEFAULT_PROMPT;
+
+      // Show current prompt and ask for new one
+      ctx.ui.notify(`Current prompt:\n${currentPrompt}`, "info");
+
+      const newPrompt = await ctx.ui.input(
+        "Enter new vision prompt (empty to reset to default):",
+        "Describe this image...",
+      );
+
+      if (newPrompt === undefined) return; // user cancelled
+
+      if (currentCfg) {
+        const updated = newPrompt.trim()
+          ? { ...currentCfg, prompt: newPrompt.trim() }
+          : { provider: currentCfg.provider, modelId: currentCfg.modelId };
+        await pi.appendEntry(CUSTOM_TYPE, updated);
+        ctx.ui.notify(
+          newPrompt.trim() ? "Vision prompt updated." : "Vision prompt reset to default.",
+          "success",
+        );
+      } else {
+        ctx.ui.notify(
+          "No vision model configured. Use /visionizer-model first.",
+          "warning",
+        );
+      }
     },
   });
 

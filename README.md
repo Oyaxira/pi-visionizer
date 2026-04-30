@@ -51,6 +51,7 @@ Switch to any text-only model (`/model` → `deepseek` → `deepseek-v4-flash`),
 | Command | Description |
 |---------|-------------|
 | `/visionizer-model` | Select which pi model to use for image description |
+| `/visionizer-prompt` | Customize the prompt sent to the vision model |
 | `/visionizer-status` | Show current vision model and cache status |
 | `/visionizer-clear` | Disable vision proxy |
 

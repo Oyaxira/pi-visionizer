@@ -17,10 +17,23 @@ export interface VisionizerConfig {
   prompt?: string;
 }
 
-export const DEFAULT_PROMPT =
-  "Describe this image in detail. Include any text, code, UI elements, " +
-  "error messages, diagrams, or visual context relevant to the task. " +
-  "Be factual and thorough.";
+export const DEFAULT_PROMPT = [
+  "Describe this image in detail and factually. Your description will be read by a coding agent that cannot see the image.",
+  "",
+  "If this is a screenshot of a UI, webpage, code editor, or terminal:",
+  "- Transcribe all visible text, code, error messages, logs, and UI labels verbatim",
+  "- Describe the layout, colors, and any visual issues (misalignment, broken elements, error states, unexpected behavior)",
+  "- Note the apparent tool, framework, or context (e.g. React app, Chrome DevTools, VS Code)",
+  "",
+  "If this is a photo, artwork, or image of a person/character:",
+  "- Describe appearance, clothing, expression, pose, and setting",
+  "- If the subject appears to be a known character, public figure, or recognizable entity, identify them",
+  "",
+  "If this is a diagram, chart, architecture drawing, or table:",
+  "- Describe the structure, labels, relationships, and key data points",
+  "",
+  "For any other image type, describe all visible elements, text, and context factually.",
+].join("\n");
 
 /**
  * Read the persisted visionizer config from session custom entries.

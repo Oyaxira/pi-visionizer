@@ -51,6 +51,7 @@ pi install ./pi-visionizer
 | 命令 | 说明 |
 |------|------|
 | `/visionizer-model` | 选择用哪个 pi 模型做图片描述 |
+| `/visionizer-prompt` | 自定义发送给视觉模型的提示词 |
 | `/visionizer-status` | 查看当前视觉模型和缓存状态 |
 | `/visionizer-clear` | 关闭视觉代理 |
 
