@@ -182,24 +182,29 @@ function isTextBlock(block: unknown): block is { type: "text"; text: string } {
   );
 }
 
-/** The misleading note pi's read tool adds when the model is text-only. */
-const NO_VISION_NOTE = "[Current model does not support images. The image will be omitted from this request.]";
-
 /**
  * Strip the "model does not support images" note from text content.
  * Since pi-visionizer IS providing a description, this note is misleading.
+ * Uses substring matching to avoid breakage if pi changes the exact wording.
  */
 function stripNoVisionNote(text: string): string {
+  const MARKER = "model does not support images";
   return text
     .split("\n")
-    .filter((line) => line.trim() !== NO_VISION_NOTE.trim())
+    .filter((line) => !line.includes(MARKER))
     .join("\n");
 }
 
 /**
  * Generate a cache key from image data.
+ * For small images (less than 128 base64 chars), use the full string to
+ * avoid collisions that could occur when first/last 64 chars overlap.
  */
 function cacheKey(data: string, mimeType: string): string {
   const len = data.length;
+  if (len < 128) {
+    return data + ":" + mimeType;
+  }
+  // Long images: use first 64 + mimeType + length + last 64 as fingerprint
   return data.slice(0, 64) + ":" + mimeType + ":" + len + ":" + data.slice(-64);
 }

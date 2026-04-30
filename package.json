@@ -13,12 +13,14 @@
     "pi"
   ],
   "license": "MIT",
-  "author": "luziyi",
+  "author": "Oyaxira",
   "repository": {
     "type": "git",
-    "url": "https://github.com/luziyi/pi-visionizer"
+    "url": "https://github.com/Oyaxira/pi-visionizer"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   }
 }

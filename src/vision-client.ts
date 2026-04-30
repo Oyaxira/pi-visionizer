@@ -59,22 +59,19 @@ export async function describeImage(params: VisionCallParams): Promise<VisionCal
 
 const imageCache = new Map<string, string>();
 
-/**
- * Generate a simple cache key from image data.
- */
-function cacheKey(base64: string): string {
-  // Simple hash: use first 64 + last 64 chars + length
-  const len = base64.length;
-  return base64.slice(0, 64) + ":" + len + ":" + base64.slice(-64);
-}
-
 export function getCached(key: string): string | undefined {
-  return imageCache.get(key);
+  const value = imageCache.get(key);
+  if (value !== undefined) {
+    // True LRU: refresh position by re-inserting at the end
+    imageCache.delete(key);
+    imageCache.set(key, value);
+  }
+  return value;
 }
 
 export function setCache(key: string, description: string): void {
-  // Simple LRU-ish: clear if too large
-  if (imageCache.size > 100) {
+  // LRU eviction: delete least-recently-used (first in insertion order)
+  if (imageCache.size >= 100) {
     const first = imageCache.keys().next().value;
     if (first) imageCache.delete(first);
   }
@@ -89,14 +86,37 @@ export function getCacheSize(): number {
   return imageCache.size;
 }
 
+// ---- Fetch with timeout ----
+
+const VISION_API_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs = VISION_API_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ---- OpenAI Chat Completions ----
 
 async function callOpenAIVision(params: VisionCallParams): Promise<VisionCallResult> {
   const { imageBase64, mediaType, model, apiKey, prompt } = params;
   const baseUrl = model.baseUrl.replace(/\/+$/, "");
 
+  // Basic validation
+  if (!imageBase64 || imageBase64.trim().length === 0) {
+    return { description: "", error: "Empty image data" };
+  }
+
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -127,6 +147,7 @@ async function callOpenAIVision(params: VisionCallParams): Promise<VisionCallRes
     });
 
     if (!response.ok) {
+      // Truncate error body to avoid bloating context
       const errText = await response.text();
       return { description: "", error: `OpenAI API error (${response.status}): ${errText.slice(0, 200)}` };
     }
@@ -138,7 +159,11 @@ async function callOpenAIVision(params: VisionCallParams): Promise<VisionCallRes
     const description = data.choices?.[0]?.message?.content?.trim() ?? "";
     return { description };
   } catch (err) {
-    return { description: "", error: `OpenAI request failed: ${err instanceof Error ? err.message : String(err)}` };
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === "AbortError") {
+      return { description: "", error: `OpenAI request timed out after ${VISION_API_TIMEOUT_MS / 1000}s` };
+    }
+    return { description: "", error: `OpenAI request failed: ${message}` };
   }
 }
 
@@ -148,8 +173,12 @@ async function callAnthropicVision(params: VisionCallParams): Promise<VisionCall
   const { imageBase64, mediaType, model, apiKey, prompt } = params;
   const baseUrl = model.baseUrl.replace(/\/+$/, "");
 
+  if (!imageBase64 || imageBase64.trim().length === 0) {
+    return { description: "", error: "Empty image data" };
+  }
+
   try {
-    const response = await fetch(`${baseUrl}/messages`, {
+    const response = await fetchWithTimeout(`${baseUrl}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -182,6 +211,7 @@ async function callAnthropicVision(params: VisionCallParams): Promise<VisionCall
     });
 
     if (!response.ok) {
+      // Truncate error body to avoid bloating context
       const errText = await response.text();
       return { description: "", error: `Anthropic API error (${response.status}): ${errText.slice(0, 200)}` };
     }
@@ -194,7 +224,11 @@ async function callAnthropicVision(params: VisionCallParams): Promise<VisionCall
     const description = textParts.join("").trim();
     return { description };
   } catch (err) {
-    return { description: "", error: `Anthropic request failed: ${err instanceof Error ? err.message : String(err)}` };
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === "AbortError") {
+      return { description: "", error: `Anthropic request timed out after ${VISION_API_TIMEOUT_MS / 1000}s` };
+    }
+    return { description: "", error: `Anthropic request failed: ${message}` };
   }
 }
 
@@ -204,8 +238,16 @@ async function callGoogleVision(params: VisionCallParams): Promise<VisionCallRes
   const { imageBase64, mediaType, model, apiKey, prompt } = params;
   const baseUrl = model.baseUrl.replace(/\/+$/, "");
 
+  if (!imageBase64 || imageBase64.trim().length === 0) {
+    return { description: "", error: "Empty image data" };
+  }
+
   try {
-    const response = await fetch(
+    // Note: Google Gemini API passes the key as a query parameter.
+    // This is the standard approach per Google's API docs — the key will
+    // appear in server access logs, which is less secure than header-based
+    // auth (Bearer/x-api-key) but unavoidable with this API format.
+    const response = await fetchWithTimeout(
       `${baseUrl}/models/${model.id}:generateContent?key=${apiKey}`,
       {
         method: "POST",
@@ -233,6 +275,7 @@ async function callGoogleVision(params: VisionCallParams): Promise<VisionCallRes
     );
 
     if (!response.ok) {
+      // Truncate error body to avoid bloating context
       const errText = await response.text();
       return { description: "", error: `Google API error (${response.status}): ${errText.slice(0, 200)}` };
     }
@@ -245,6 +288,10 @@ async function callGoogleVision(params: VisionCallParams): Promise<VisionCallRes
     const description = parts.map((p) => p.text ?? "").join("").trim();
     return { description };
   } catch (err) {
-    return { description: "", error: `Google request failed: ${err instanceof Error ? err.message : String(err)}` };
+    const message = err instanceof Error ? err.message : String(err);
+    if (err instanceof Error && err.name === "AbortError") {
+      return { description: "", error: `Google request timed out after ${VISION_API_TIMEOUT_MS / 1000}s` };
+    }
+    return { description: "", error: `Google request failed: ${message}` };
   }
 }

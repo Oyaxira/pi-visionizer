@@ -43,7 +43,11 @@ export function getConfig(ctx: ExtensionContext): VisionizerConfig | undefined {
   const entries = ctx.sessionManager.getEntries();
   // Iterate in reverse — newest config entry wins. appendEntry() adds
   // entries to the end, so the last matching entry is the current config.
-  for (let i = entries.length - 1; i >= 0; i--) {
+  //
+  // Cap the search to the last 20 entries to avoid performance degradation
+  // in long sessions where config may have been toggled many times.
+  const startIdx = Math.max(0, entries.length - 20);
+  for (let i = entries.length - 1; i >= startIdx; i--) {
     const entry = entries[i];
     if (entry.type === "custom" && entry.customType === CUSTOM_TYPE) {
       const data = entry.data as VisionizerConfig | undefined;
