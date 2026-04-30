@@ -29,23 +29,21 @@ export function registerCommands(pi: ExtensionAPI): void {
         ? `${currentCfg.provider}/${currentCfg.modelId}`
         : undefined;
 
-      const items = visionModels.map((m) => ({
-        value: `${m.provider}/${m.id}`,
-        label: `${m.provider}/${m.id}`,
-        description: m.name ?? m.id,
-        detail: m.id === currentCfg?.modelId && m.provider === currentCfg?.provider
-          ? "✓ current"
-          : undefined,
-      }));
+      const labels = visionModels.map((m) => {
+        const isCurrent = m.id === currentCfg?.modelId && m.provider === currentCfg?.provider;
+        return `${m.provider}/${m.id}${isCurrent ? " (current)" : ""}`;
+      });
 
       const picked = await ctx.ui.select(
         `Pick a vision model (current: ${currentId ?? "none"}):`,
-        items,
+        labels,
       );
 
       if (!picked) return;
 
-      const [provider, ...rest] = picked.split("/");
+      // Strip " (current)" suffix if present
+      const clean = picked.replace(/ \(current\)$/, "");
+      const [provider, ...rest] = clean.split("/");
       const modelId = rest.join("/");
 
       const config: VisionizerConfig = {
