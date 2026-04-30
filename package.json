@@ -1,0 +1,24 @@
+{
+  "name": "pi-visionizer",
+  "version": "0.1.0",
+  "description": "Add vision support to any text-only model in pi coding agent — transparent image description via a configured vision model.",
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "pi-extension",
+    "vision",
+    "multimodal",
+    "deepseek",
+    "image",
+    "pi"
+  ],
+  "license": "MIT",
+  "author": "luziyi",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luziyi/pi-visionizer"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  }
+}
