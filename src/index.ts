@@ -22,22 +22,10 @@
  * - Errors from vision model → replaces image with error note, never blocks
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerCommands } from "./commands";
-import {
-  CUSTOM_TYPE,
-  DEFAULT_PROMPT,
-  getConfig,
-  type VisionizerConfig,
-} from "./config";
-import {
-  clearCache,
-  describeImage,
-  getCached,
-  setCache,
-  type VisionCallResult,
-} from "./vision-client";
+import { DEFAULT_PROMPT, getConfig } from "./config";
+import { describeImage, getCached, setCache } from "./vision-client";
 
 export default function (pi: ExtensionAPI) {
   registerCommands(pi);
@@ -79,10 +67,17 @@ export default function (pi: ExtensionAPI) {
 
 // ── Helpers ──
 
+/** Internal message type for context event messages. */
+interface ContextMessage {
+  role: string;
+  content: unknown[];
+  [key: string]: unknown;
+}
+
 /**
  * Check if any message in the array contains image content blocks.
  */
-function hasImages(messages: readonly AgentMessage[]): boolean {
+function hasImages(messages: readonly ContextMessage[]): boolean {
   for (const msg of messages) {
     if (!Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
@@ -96,33 +91,34 @@ function hasImages(messages: readonly AgentMessage[]): boolean {
  * Process all messages: replace image blocks with text descriptions.
  */
 async function processMessages(
-  messages: readonly AgentMessage[],
-  visionModel: ReturnType<ExtensionContext["modelRegistry"]["find"]>,
+  messages: readonly ContextMessage[],
+  visionModel: { id: string; baseUrl: string; api: string; name?: string; provider: string; input: string[]; reasoning: boolean; cost: Record<string, number>; contextWindow: number; maxTokens: number },
   apiKey: string,
   prompt: string,
-): Promise<AgentMessage[]> {
-  const result: AgentMessage[] = [];
+): Promise<ContextMessage[]> {
+  const result: ContextMessage[] = [];
 
   for (const msg of messages) {
     if (!Array.isArray(msg.content)) {
-      result.push(msg as AgentMessage);
+      result.push(msg);
       continue;
     }
 
-    const newContent: any[] = [];
+    const newContent: unknown[] = [];
     let hasReplacement = false;
 
     for (const block of msg.content) {
       if (isImageBlock(block)) {
         hasReplacement = true;
 
-        const imgKey = cacheKey(block.data, block.mimeType ?? "image/png");
+        const mimeType = (block as any).mimeType ?? "image/png";
+        const imgKey = cacheKey(block.data, mimeType);
         let description = getCached(imgKey);
 
         if (!description) {
           const visionResult = await describeImage({
             imageBase64: block.data,
-            mediaType: block.mimeType ?? "image/png",
+            mediaType: mimeType,
             model: visionModel as any,
             apiKey,
             prompt,
@@ -146,9 +142,9 @@ async function processMessages(
     }
 
     if (hasReplacement) {
-      result.push({ ...msg, content: newContent } as AgentMessage);
+      result.push({ ...msg, content: newContent });
     } else {
-      result.push(msg as AgentMessage);
+      result.push(msg);
     }
   }
 

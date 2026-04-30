@@ -5,9 +5,16 @@
  * separate API keys. Supports all three API formats pi works with.
  */
 
-import type { Model } from "@mariozechner/pi-ai";
-
 // ---- Public API ----
+
+/** Minimum model info needed from ctx.modelRegistry.find(). */
+export interface VisionModelInfo {
+  id: string;
+  api: string;
+  baseUrl: string;
+  name?: string;
+  provider: string;
+}
 
 export interface VisionCallParams {
   /** Image data as base64-encoded string (without data: prefix). */
@@ -15,7 +22,7 @@ export interface VisionCallParams {
   /** Image MIME type (e.g. "image/png", "image/jpeg"). */
   mediaType: string;
   /** Model info from ctx.modelRegistry.find(). */
-  model: Model<any>;
+  model: VisionModelInfo;
   /** Resolved API key. */
   apiKey: string;
   /** Prompt for the vision model. */
