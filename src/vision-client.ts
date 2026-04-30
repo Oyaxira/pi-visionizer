@@ -27,6 +27,8 @@ export interface VisionCallParams {
   apiKey: string;
   /** Prompt for the vision model. */
   prompt: string;
+  /** Require HTTPS endpoint. Default true. Set false for local models (Ollama, etc.). */
+  requireHttps?: boolean;
 }
 
 export interface VisionCallResult {
@@ -114,6 +116,9 @@ async function callOpenAIVision(params: VisionCallParams): Promise<VisionCallRes
   if (!imageBase64 || imageBase64.trim().length === 0) {
     return { description: "", error: "Empty image data" };
   }
+  if (params.requireHttps !== false && !baseUrl.startsWith("https://")) {
+    return { description: "", error: "Vision model must use HTTPS. Set requireHttps=false for local models." };
+  }
 
   try {
     const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
@@ -175,6 +180,9 @@ async function callAnthropicVision(params: VisionCallParams): Promise<VisionCall
 
   if (!imageBase64 || imageBase64.trim().length === 0) {
     return { description: "", error: "Empty image data" };
+  }
+  if (params.requireHttps !== false && !baseUrl.startsWith("https://")) {
+    return { description: "", error: "Vision model must use HTTPS. Set requireHttps=false for local models." };
   }
 
   try {
@@ -241,17 +249,19 @@ async function callGoogleVision(params: VisionCallParams): Promise<VisionCallRes
   if (!imageBase64 || imageBase64.trim().length === 0) {
     return { description: "", error: "Empty image data" };
   }
+  if (params.requireHttps !== false && !baseUrl.startsWith("https://")) {
+    return { description: "", error: "Vision model must use HTTPS. Set requireHttps=false for local models." };
+  }
 
   try {
-    // Note: Google Gemini API passes the key as a query parameter.
-    // This is the standard approach per Google's API docs — the key will
-    // appear in server access logs, which is less secure than header-based
-    // auth (Bearer/x-api-key) but unavoidable with this API format.
     const response = await fetchWithTimeout(
-      `${baseUrl}/models/${model.id}:generateContent?key=${apiKey}`,
+      `${baseUrl}/models/${model.id}:generateContent`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
         body: JSON.stringify({
           contents: [
             {

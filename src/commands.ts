@@ -91,12 +91,38 @@ export function registerCommands(pi: ExtensionAPI): void {
         `Vision model: ${cfg.provider}/${cfg.modelId}`,
         `Status: ${available ? "✓ available" : "⚠ not available"}`,
         ...(authError ? [`Reason: ${authError}`] : []),
+        `HTTPS required: ${cfg.requireHttps !== false ? "on" : "off"}`,
         `Cache entries: ${cacheEntries}`,
         ``,
         `Use /visionizer-model to change, /visionizer-clear to disable.`,
       ];
 
       ctx.ui.notify(lines.join("\n"), "info");
+    },
+  });
+
+  // /visionizer-https — toggle HTTPS requirement
+  pi.registerCommand("visionizer-https", {
+    description: "Toggle HTTPS requirement for vision model endpoint",
+    handler: async (_args, ctx: ExtensionCommandContext) => {
+      const cfg = getConfig(ctx);
+      if (!cfg) {
+        ctx.ui.notify(
+          "No vision model configured. Use /visionizer-model first.",
+          "warning",
+        );
+        return;
+      }
+
+      const current = cfg.requireHttps !== false;
+      const updated: VisionizerConfig = { ...cfg, requireHttps: !current };
+      await pi.appendEntry(CUSTOM_TYPE, updated);
+
+      ctx.ui.notify(
+        `HTTPS requirement ${updated.requireHttps ? "enabled" : "disabled"}.` +
+          (updated.requireHttps ? "" : " Local models (Ollama, etc.) can now be used."),
+        "success",
+      );
     },
   });
 

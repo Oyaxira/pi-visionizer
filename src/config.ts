@@ -15,6 +15,8 @@ export interface VisionizerConfig {
   modelId: string;
   /** Custom prompt sent to the vision model for describing images. */
   prompt?: string;
+  /** Require HTTPS for the vision model endpoint. Default true. Set to false for local models. */
+  requireHttps?: boolean;
 }
 
 export const DEFAULT_PROMPT = [

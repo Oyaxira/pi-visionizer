@@ -52,6 +52,7 @@ pi install ./pi-visionizer
 |------|------|
 | `/visionizer-model` | 选择用哪个 pi 模型做图片描述 |
 | `/visionizer-prompt` | 自定义发送给视觉模型的提示词 |
+| `/visionizer-https` | 切换视觉端点 HTTPS 要求（默认开启） |
 | `/visionizer-status` | 查看当前视觉模型和缓存状态 |
 | `/visionizer-clear` | 关闭视觉代理 |
 

@@ -32,36 +32,43 @@ export default function (pi: ExtensionAPI) {
 
   // ── Context hook: fired before every LLM call ──
   pi.on("context", async (event, ctx) => {
-    // Skip if current model supports images natively
-    const model = ctx.model;
-    if (!model || model.input.includes("image")) return;
+    try {
+      // Skip if current model supports images natively
+      const model = ctx.model;
+      if (!model || model.input.includes("image")) return;
 
-    // Skip if visionizer is not configured
-    const cfg = getConfig(ctx);
-    if (!cfg) return;
+      // Skip if visionizer is not configured
+      const cfg = getConfig(ctx);
+      if (!cfg) return;
 
-    // Find the vision model in pi's registry
-    const visionModel = ctx.modelRegistry.find(cfg.provider, cfg.modelId);
-    if (!visionModel) return;
+      // Find the vision model in pi's registry
+      const visionModel = ctx.modelRegistry.find(cfg.provider, cfg.modelId);
+      if (!visionModel) return;
 
-    // Check for image content in messages
-    if (!hasImages(event.messages)) return;
+      // Check for image content in messages
+      if (!hasImages(event.messages)) return;
 
-    // Resolve vision model auth
-    const auth = await ctx.modelRegistry.getApiKeyAndHeaders(visionModel);
-    if (!auth.ok || !auth.apiKey) return;
+      // Resolve vision model auth
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(visionModel);
+      if (!auth.ok || !auth.apiKey) return;
 
-    const prompt = cfg.prompt || DEFAULT_PROMPT;
+      const prompt = cfg.prompt || DEFAULT_PROMPT;
+      const requireHttps = cfg.requireHttps !== false; // default true
 
-    // Process messages: replace image blocks with text descriptions
-    const processed = await processMessages(
-      event.messages,
-      visionModel,
-      auth.apiKey,
-      prompt,
-    );
+      // Process messages: replace image blocks with text descriptions
+      const processed = await processMessages(
+        event.messages,
+        visionModel,
+        auth.apiKey,
+        prompt,
+        requireHttps,
+      );
 
-    return { messages: processed };
+      return { messages: processed };
+    } catch {
+      // Silently pass through — never block the conversation
+      return;
+    }
   });
 }
 
@@ -95,6 +102,7 @@ async function processMessages(
   visionModel: { id: string; baseUrl: string; api: string; name?: string; provider: string; input: string[]; reasoning: boolean; cost: Record<string, number>; contextWindow: number; maxTokens: number },
   apiKey: string,
   prompt: string,
+  requireHttps: boolean,
 ): Promise<ContextMessage[]> {
   const result: ContextMessage[] = [];
 
@@ -122,6 +130,7 @@ async function processMessages(
             model: visionModel as any,
             apiKey,
             prompt,
+            requireHttps,
           });
 
           if (visionResult.error && !visionResult.description) {
