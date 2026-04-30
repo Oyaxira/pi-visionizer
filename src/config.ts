@@ -40,11 +40,20 @@ export const DEFAULT_PROMPT = [
  * Returns undefined if not configured.
  */
 export function getConfig(ctx: ExtensionContext): VisionizerConfig | undefined {
-  for (const entry of ctx.sessionManager.getEntries()) {
+  const entries = ctx.sessionManager.getEntries();
+  // Iterate in reverse — newest config entry wins. appendEntry() adds
+  // entries to the end, so the last matching entry is the current config.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
     if (entry.type === "custom" && entry.customType === CUSTOM_TYPE) {
       const data = entry.data as VisionizerConfig | undefined;
       if (data?.provider && data?.modelId) {
         return data;
+      }
+      // A null/empty entry from /visionizer-clear → stop searching;
+      // anything before it is stale.
+      if (data === null || data === undefined) {
+        return undefined;
       }
     }
   }
