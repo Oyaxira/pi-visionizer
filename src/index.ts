@@ -23,12 +23,126 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { Type } from "typebox";
 import { registerCommands } from "./commands";
-import { DEFAULT_PROMPT, getConfig } from "./config";
-import { describeImage, getCached, setCache } from "./vision-client";
+import { DEFAULT_PROMPT, resolveConfig } from "./config";
+import {
+  describeImage,
+  getCached,
+  setCache,
+  type VisionModelInfo,
+} from "./vision-client";
 
 export default function (pi: ExtensionAPI) {
   registerCommands(pi);
+
+  // ── Context hook: fired before every LLM call ──
+  // ── Tool: describe_image — LLM can actively call this ──
+  pi.registerTool({
+    name: "describe_image",
+    label: "Describe Image",
+    description:
+      "Describe an image file using the configured vision model. " +
+      "Use this to understand screenshots, diagrams, photos, or any image content. " +
+      "This is especially useful when you need to know what's in an image file on disk.",
+    promptSnippet: "Describe an image file using a vision model",
+    promptGuidelines: [
+      "Use describe_image when you need to understand the content of an image file on disk (screenshots, diagrams, photos, etc.).",
+    ],
+    parameters: Type.Object({
+      path: Type.String({
+        description: "Path to the image file to describe (e.g. screenshot.png, diagram.jpg)",
+      }),
+      prompt: Type.Optional(
+        Type.String({
+          description:
+            "Custom prompt for the vision model. If omitted, uses the default description prompt.",
+        }),
+      ),
+    }),
+
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+
+      const absPath = path.resolve(ctx.cwd, params.path);
+
+      // Read image file
+      let buffer: Buffer;
+      try {
+        buffer = await fs.readFile(absPath);
+      } catch (err: any) {
+        const msg = err?.code === "ENOENT"
+          ? `Image file not found: ${params.path}`
+          : `Failed to read image: ${err.message ?? err}`;
+        return {
+          content: [{ type: "text", text: msg }],
+          isError: true,
+        };
+      }
+
+      // Determine MIME type from extension
+      const ext = path.extname(params.path).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".bmp": "image/bmp",
+      };
+      const mediaType = mimeMap[ext] ?? "image/png";
+      const imageBase64 = buffer.toString("base64");
+
+      // Resolve vision model config (session or hardcoded default)
+      const cfg = resolveConfig(ctx);
+      const visionModel = ctx.modelRegistry.find(cfg.provider, cfg.modelId);
+      if (!visionModel) {
+        return {
+          content: [{
+            type: "text",
+            text: `Vision model ${cfg.provider}/${cfg.modelId} not found in model registry.`,
+          }],
+          isError: true,
+        };
+      }
+
+      const auth = await ctx.modelRegistry.getApiKeyAndHeaders(visionModel);
+      if (!auth.ok || !auth.apiKey) {
+        return {
+          content: [{
+            type: "text",
+            text: `Vision model API key not available${auth.error ? `: ${auth.error}` : ""}.`,
+          }],
+          isError: true,
+        };
+      }
+
+      onUpdate?.({ content: [{ type: "text", text: "Describing image…" }] });
+
+      const result = await describeImage({
+        imageBase64,
+        mediaType,
+        model: visionModel as VisionModelInfo,
+        apiKey: auth.apiKey,
+        prompt: params.prompt || cfg.prompt || DEFAULT_PROMPT,
+        requireHttps: cfg.requireHttps !== false,
+      });
+
+      if (result.error && !result.description) {
+        return {
+          content: [{ type: "text", text: `Failed to describe image: ${result.error}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: result.description || "(no description returned)" }],
+        details: { path: params.path, mediaType, size: buffer.length },
+      };
+    },
+  });
 
   // ── Context hook: fired before every LLM call ──
   pi.on("context", async (event, ctx) => {
@@ -37,9 +151,8 @@ export default function (pi: ExtensionAPI) {
       const model = ctx.model;
       if (!model || model.input.includes("image")) return;
 
-      // Skip if visionizer is not configured
-      const cfg = getConfig(ctx);
-      if (!cfg) return;
+      // Resolve config (session entry or hardcoded default)
+      const cfg = resolveConfig(ctx);
 
       // Find the vision model in pi's registry
       const visionModel = ctx.modelRegistry.find(cfg.provider, cfg.modelId);

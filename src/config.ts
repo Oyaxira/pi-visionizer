@@ -19,6 +19,13 @@ export interface VisionizerConfig {
   requireHttps?: boolean;
 }
 
+/** Hardcoded default vision model — fallback when no persisted config found.
+ *  Change provider/modelId to your preferred vision model. */
+export const DEFAULT_VISION_MODEL: VisionizerConfig = {
+  provider: "google",
+  modelId: "gemini-3.1-flash-lite",
+};
+
 export const DEFAULT_PROMPT = [
   "Describe this image in detail and factually. Your description will be read by a coding agent that cannot see the image.",
   "",
@@ -39,7 +46,7 @@ export const DEFAULT_PROMPT = [
 
 /**
  * Read the persisted visionizer config from session custom entries.
- * Returns undefined if not configured.
+ * Returns undefined if not configured (no session entry found and no clear marker).
  */
 export function getConfig(ctx: ExtensionContext): VisionizerConfig | undefined {
   const entries = ctx.sessionManager.getEntries();
@@ -64,4 +71,15 @@ export function getConfig(ctx: ExtensionContext): VisionizerConfig | undefined {
     }
   }
   return undefined;
+}
+
+/**
+ * Resolve visionizer config: session config takes priority, falls back to
+ * hardcoded DEFAULT_VISION_MODEL when no session config is found.
+ *
+ * This ensures visionizer always has a model to use — the "config lost"
+ * problem is solved by the hardcoded default.
+ */
+export function resolveConfig(ctx: ExtensionContext): VisionizerConfig {
+  return getConfig(ctx) ?? DEFAULT_VISION_MODEL;
 }
