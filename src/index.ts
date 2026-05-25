@@ -67,16 +67,44 @@ export default function (pi: ExtensionAPI) {
 
       const absPath = path.resolve(ctx.cwd, params.path);
 
+      // Check file size before reading (prevent OOM / API rejection on huge images)
+      let stat: { size: number };
+      try {
+        stat = await fs.stat(absPath);
+      } catch (err: any) {
+        const msg = err?.code === "ENOENT"
+          ? `Image file not found: ${params.path}`
+          : `Failed to stat image: ${err.message ?? err}`;
+        return {
+          content: [{ type: "text", text: msg }],
+          isError: true,
+        };
+      }
+
+      const MAX_SIZE = 4 * 1024 * 1024; // 4 MB — safe for all vision APIs, keeps requests fast
+      if (stat.size > MAX_SIZE) {
+        const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
+        return {
+          content: [{
+            type: "text",
+            text:
+              `Image too large: ${sizeMB} MB (limit: 4 MB).\n` +
+              `Compress it first, e.g.:\n` +
+              `  - convert input.png -resize 2048x2048\> -quality 85 output.jpg\n` +
+              `  - mogrify -resize 2048x2048\> -quality 85 *.png`,
+          }],
+          isError: true,
+          details: { path: params.path, size: stat.size, limit: MAX_SIZE },
+        };
+      }
+
       // Read image file
       let buffer: Buffer;
       try {
         buffer = await fs.readFile(absPath);
       } catch (err: any) {
-        const msg = err?.code === "ENOENT"
-          ? `Image file not found: ${params.path}`
-          : `Failed to read image: ${err.message ?? err}`;
         return {
-          content: [{ type: "text", text: msg }],
+          content: [{ type: "text", text: `Failed to read image: ${err.message ?? err}` }],
           isError: true,
         };
       }
