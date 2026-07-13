@@ -2,9 +2,9 @@
  * User commands for pi-visionizer.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { clearCache, getCacheSize } from "./vision-client";
-import { CUSTOM_TYPE, DEFAULT_PROMPT, getConfig, type VisionizerConfig } from "./config";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { clearCache, getCacheSize } from "./vision-client.ts";
+import { CUSTOM_TYPE, DEFAULT_PROMPT, getConfig, type VisionizerConfig } from "./config.ts";
 
 export function registerCommands(pi: ExtensionAPI): void {
   // /visionizer-model — pick a vision model from available pi models
@@ -54,7 +54,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       await pi.appendEntry(CUSTOM_TYPE, config);
       ctx.ui.notify(
         `Vision model set to ${provider}/${modelId}. All text-only models will now proxy images through it.`,
-        "success",
+        "info",
       );
     },
   });
@@ -79,9 +79,11 @@ export function registerCommands(pi: ExtensionAPI): void {
       let authError = "";
       if (model) {
         const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-        available = auth.ok && !!auth.apiKey;
-        if (!available && auth.error) {
+        if (!auth.ok) {
           authError = auth.error;
+        } else {
+          available = !!auth.apiKey;
+          if (!available) authError = "No API key returned for this model.";
         }
       }
 
@@ -121,7 +123,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       ctx.ui.notify(
         `HTTPS requirement ${updated.requireHttps ? "enabled" : "disabled"}.` +
           (updated.requireHttps ? "" : " Local models (Ollama, etc.) can now be used."),
-        "success",
+        "info",
       );
     },
   });
@@ -150,7 +152,7 @@ export function registerCommands(pi: ExtensionAPI): void {
         await pi.appendEntry(CUSTOM_TYPE, updated);
         ctx.ui.notify(
           newPrompt.trim() ? "Vision prompt updated." : "Vision prompt reset to default.",
-          "success",
+          "info",
         );
       } else {
         ctx.ui.notify(
@@ -168,7 +170,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       // Append a clear marker entry
       await pi.appendEntry(CUSTOM_TYPE, null);
       clearCache();
-      ctx.ui.notify("Visionizer disabled. Image proxy turned off.", "success");
+      ctx.ui.notify("Visionizer disabled. Image proxy turned off.", "info");
     },
   });
 }

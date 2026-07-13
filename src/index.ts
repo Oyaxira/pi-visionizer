@@ -22,24 +22,74 @@
  * - Errors from vision model → replaces image with error note, never blocks
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ContextEvent, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { registerCommands } from "./commands";
-import { DEFAULT_PROMPT, resolveConfig } from "./config";
+import { registerCommands } from "./commands.ts";
+import { DEFAULT_PROMPT, resolveConfig } from "./config.ts";
 import {
   describeImage,
   getCached,
   setCache,
   type VisionModelInfo,
-} from "./vision-client";
+} from "./vision-client.ts";
+
+const DESCRIBE_IMAGE_TOOL_NAME = "describe_image";
+
+interface ModelWithInput {
+  input: readonly string[];
+}
 
 export default function (pi: ExtensionAPI) {
   registerCommands(pi);
 
-  // ── Context hook: fired before every LLM call ──
+  // The tool remains registered so it can be restored after a model switch,
+  // but native vision models should never see its schema or prompt guidance.
+  let describeImageToolTemporarilyHidden = false;
+
+  const setDescribeImageToolActive = (active: boolean): boolean => {
+    const activeTools = pi.getActiveTools();
+    const isActive = activeTools.includes(DESCRIBE_IMAGE_TOOL_NAME);
+    if (isActive === active) return true;
+
+    if (active) {
+      // Respect --exclude-tools and other configurations that remove the tool
+      // from the registry entirely.
+      const isAvailable = pi.getAllTools().some(
+        (tool) => tool.name === DESCRIBE_IMAGE_TOOL_NAME,
+      );
+      if (!isAvailable) return false;
+      pi.setActiveTools([...activeTools, DESCRIBE_IMAGE_TOOL_NAME]);
+    } else {
+      pi.setActiveTools(
+        activeTools.filter((name) => name !== DESCRIBE_IMAGE_TOOL_NAME),
+      );
+    }
+
+    return true;
+  };
+
+  const syncDescribeImageTool = (model: ModelWithInput | undefined): void => {
+    if (!model) return;
+
+    if (model.input.includes("image")) {
+      if (pi.getActiveTools().includes(DESCRIBE_IMAGE_TOOL_NAME)) {
+        describeImageToolTemporarilyHidden = true;
+        setDescribeImageToolActive(false);
+      }
+      return;
+    }
+
+    if (
+      describeImageToolTemporarilyHidden &&
+      setDescribeImageToolActive(true)
+    ) {
+      describeImageToolTemporarilyHidden = false;
+    }
+  };
+
   // ── Tool: describe_image — LLM can actively call this ──
   pi.registerTool({
-    name: "describe_image",
+    name: DESCRIBE_IMAGE_TOOL_NAME,
     label: "Describe Image",
     description:
       "Describe an image file using the configured vision model. " +
@@ -75,27 +125,18 @@ export default function (pi: ExtensionAPI) {
         const msg = err?.code === "ENOENT"
           ? `Image file not found: ${params.path}`
           : `Failed to stat image: ${err.message ?? err}`;
-        return {
-          content: [{ type: "text", text: msg }],
-          isError: true,
-        };
+        throw new Error(msg);
       }
 
       const MAX_SIZE = 4 * 1024 * 1024; // 4 MB — safe for all vision APIs, keeps requests fast
       if (stat.size > MAX_SIZE) {
         const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
-        return {
-          content: [{
-            type: "text",
-            text:
-              `Image too large: ${sizeMB} MB (limit: 4 MB).\n` +
-              `Compress it first, e.g.:\n` +
-              `  - convert input.png -resize 2048x2048\> -quality 85 output.jpg\n` +
-              `  - mogrify -resize 2048x2048\> -quality 85 *.png`,
-          }],
-          isError: true,
-          details: { path: params.path, size: stat.size, limit: MAX_SIZE },
-        };
+        throw new Error(
+          `Image too large: ${sizeMB} MB (limit: 4 MB).\n` +
+            `Compress it first, e.g.:\n` +
+            `  - convert input.png -resize 2048x2048\> -quality 85 output.jpg\n` +
+            `  - mogrify -resize 2048x2048\> -quality 85 *.png`,
+        );
       }
 
       // Read image file
@@ -103,10 +144,7 @@ export default function (pi: ExtensionAPI) {
       try {
         buffer = await fs.readFile(absPath);
       } catch (err: any) {
-        return {
-          content: [{ type: "text", text: `Failed to read image: ${err.message ?? err}` }],
-          isError: true,
-        };
+        throw new Error(`Failed to read image: ${err.message ?? err}`);
       }
 
       // Determine MIME type from extension
@@ -127,27 +165,23 @@ export default function (pi: ExtensionAPI) {
       const cfg = resolveConfig(ctx);
       const visionModel = ctx.modelRegistry.find(cfg.provider, cfg.modelId);
       if (!visionModel) {
-        return {
-          content: [{
-            type: "text",
-            text: `Vision model ${cfg.provider}/${cfg.modelId} not found in model registry.`,
-          }],
-          isError: true,
-        };
+        throw new Error(
+          `Vision model ${cfg.provider}/${cfg.modelId} not found in model registry.`,
+        );
       }
 
       const auth = await ctx.modelRegistry.getApiKeyAndHeaders(visionModel);
-      if (!auth.ok || !auth.apiKey) {
-        return {
-          content: [{
-            type: "text",
-            text: `Vision model API key not available${auth.error ? `: ${auth.error}` : ""}.`,
-          }],
-          isError: true,
-        };
+      if (!auth.ok) {
+        throw new Error(`Vision model API key not available: ${auth.error}`);
+      }
+      if (!auth.apiKey) {
+        throw new Error("Vision model API key not available.");
       }
 
-      onUpdate?.({ content: [{ type: "text", text: "Describing image…" }] });
+      onUpdate?.({
+        content: [{ type: "text", text: "Describing image…" }],
+        details: {},
+      });
 
       const result = await describeImage({
         imageBase64,
@@ -159,10 +193,7 @@ export default function (pi: ExtensionAPI) {
       });
 
       if (result.error && !result.description) {
-        return {
-          content: [{ type: "text", text: `Failed to describe image: ${result.error}` }],
-          isError: true,
-        };
+        throw new Error(`Failed to describe image: ${result.error}`);
       }
 
       return {
@@ -170,6 +201,28 @@ export default function (pi: ExtensionAPI) {
         details: { path: params.path, mediaType, size: buffer.length },
       };
     },
+  });
+
+  // Keep describe_image out of native vision models' active tool set. This
+  // removes its schema, prompt snippet, and guidelines from model context.
+  pi.on("session_start", (_event, ctx) => {
+    syncDescribeImageTool(ctx.model);
+  });
+
+  pi.on("model_select", (event) => {
+    syncDescribeImageTool(event.model);
+  });
+
+  // Undo our temporary change before reload/session replacement. The next
+  // extension instance will hide the tool again if the selected model still
+  // supports images, while text-only models get the original tool state back.
+  pi.on("session_shutdown", () => {
+    if (
+      describeImageToolTemporarilyHidden &&
+      setDescribeImageToolActive(true)
+    ) {
+      describeImageToolTemporarilyHidden = false;
+    }
   });
 
   // ── Context hook: fired before every LLM call ──
@@ -215,18 +268,19 @@ export default function (pi: ExtensionAPI) {
 
 // ── Helpers ──
 
-/** Internal message type for context event messages. */
-interface ContextMessage {
-  role: string;
-  content: unknown[];
-  [key: string]: unknown;
-}
+/** Message type exposed by pi's context event. */
+type ContextMessage = ContextEvent["messages"][number];
 
 /**
  * Check if any message in the array contains image content blocks.
  */
 function hasImages(messages: readonly ContextMessage[]): boolean {
   for (const msg of messages) {
+    if (
+      msg.role !== "user" &&
+      msg.role !== "toolResult" &&
+      msg.role !== "custom"
+    ) continue;
     if (!Array.isArray(msg.content)) continue;
     for (const block of msg.content) {
       if (isImageBlock(block)) return true;
@@ -240,7 +294,7 @@ function hasImages(messages: readonly ContextMessage[]): boolean {
  */
 async function processMessages(
   messages: readonly ContextMessage[],
-  visionModel: { id: string; baseUrl: string; api: string; name?: string; provider: string; input: string[]; reasoning: boolean; cost: Record<string, number>; contextWindow: number; maxTokens: number },
+  visionModel: VisionModelInfo,
   apiKey: string,
   prompt: string,
   requireHttps: boolean,
@@ -248,12 +302,20 @@ async function processMessages(
   const result: ContextMessage[] = [];
 
   for (const msg of messages) {
+    if (
+      msg.role !== "user" &&
+      msg.role !== "toolResult" &&
+      msg.role !== "custom"
+    ) {
+      result.push(msg);
+      continue;
+    }
     if (!Array.isArray(msg.content)) {
       result.push(msg);
       continue;
     }
 
-    const newContent: unknown[] = [];
+    const newContent: typeof msg.content = [];
     let hasReplacement = false;
 
     for (const block of msg.content) {
@@ -268,7 +330,7 @@ async function processMessages(
           const visionResult = await describeImage({
             imageBase64: block.data,
             mediaType: mimeType,
-            model: visionModel as any,
+            model: visionModel,
             apiKey,
             prompt,
             requireHttps,

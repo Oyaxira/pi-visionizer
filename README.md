@@ -75,7 +75,8 @@ No extra API keys needed — pi-visionizer reuses your existing pi model configu
 ## Reliability
 
 - **Zero impact when disabled** — if no vision model is configured, pi-visionizer does nothing
-- **Native vision models untouched** — models that already support images (claude, gpt-4o) are skipped
+- **Native vision models untouched** — models that already support images (Claude, GPT-4o, Gemini, etc.) bypass the proxy
+- **No tool-context pollution** — `describe_image` is automatically removed from the active tool set for native vision models, then restored when switching back to a text-only model
 - **Image caching** — identical images are described only once per session
 - **Graceful failure** — if the vision model call fails, images are replaced with an error note, never blocking the conversation
 
